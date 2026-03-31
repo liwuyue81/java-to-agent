@@ -1,0 +1,23 @@
+2026-03-30 08:01:12 INFO  UserService - User login success: userId=1001
+2026-03-30 08:05:33 INFO  OrderService - Order created: orderId=5001, userId=1001
+2026-03-30 08:10:45 WARN  DBPool - Connection pool usage 80%, threshold=75%
+2026-03-30 08:15:22 ERROR DBPool - Connection pool exhausted, failed to acquire connection
+2026-03-30 08:15:23 ERROR OrderService - Create order failed: orderId=5002, cause=DB connection timeout
+2026-03-30 08:15:24 ERROR PaymentService - Payment failed: orderId=5002, cause=upstream service unavailable
+2026-03-30 08:20:11 INFO  DBPool - Connection pool recovered, current usage 40%
+2026-03-30 09:00:01 INFO  SchedulerService - Daily report job started
+2026-03-30 09:00:45 WARN  SchedulerService - Daily report job slow, elapsed=44s, threshold=30s
+2026-03-30 09:01:02 INFO  SchedulerService - Daily report job finished
+2026-03-30 09:30:18 ERROR UserService - User not found: userId=9999
+2026-03-30 10:00:00 INFO  HealthCheck - Service health check passed
+2026-03-30 10:15:55 WARN  CacheService - Cache miss rate 35%, threshold=30%
+2026-03-30 10:20:33 ERROR CacheService - Redis connection failed: host=redis-01, port=6379
+2026-03-30 10:20:34 ERROR OrderService - Query order failed: cause=cache unavailable, fallback to DB
+2026-03-30 10:25:10 INFO  CacheService - Redis reconnected successfully
+2026-03-30 11:00:00 INFO  HealthCheck - Service health check passed
+2026-03-31 12:31:31 INFO  AuthService - Token refresh success: userId=2001
+2026-03-31 12:31:34 WARN  DBPool - Connection pool usage 85%, threshold=75%
+2026-03-31 12:31:37 ERROR DBPool - Connection pool exhausted, max=50 reached
+2026-03-31 12:31:40 ERROR OrderService - Create order failed: cause=DB connection timeout
+2026-03-31 12:31:43 ERROR PaymentService - Payment gateway timeout: orderId=9001
+2026-03-31 12:31:46 INFO  DBPool - Connection pool recovered, current usage 30%
