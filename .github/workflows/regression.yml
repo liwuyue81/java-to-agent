@@ -4,6 +4,7 @@ name: Regression Tests
 # PR：每次提 PR 跑，让 reviewer 看到 Prompt 改动前后的对比
 # push main：合并后再跑一次确认，报告归档到 Actions artifact
 on:
+  workflow_dispatch:   # 允许在 GitHub UI 手动触发
   pull_request:
     branches: [main]
     paths:
