@@ -1,0 +1,79 @@
+# Supervisor Agent 回归测试种子用例
+# ────────────────────────────────────────────────────────────
+# 每条 case 的字段：
+#   name                  唯一标识，不同 case 必须不同
+#   query                 用户问题
+#   conversation_history  多轮场景注入的历史 Q/A 字符串，其余留空 ""
+#   expected_route        期望出现的 Agent 节点（宽松匹配：只要实际路径里出现即 pass）
+#                         可选值：parser / analyzer / reporter
+#                         空列表 [] 表示期望 Supervisor 直接 END（越界问题）
+#   expected_keywords     最终 agent_outputs 里应含的关键词（and 关系）
+#   expected_final_report 是否应产出结构化 Pydantic 报告
+#   notes                 人类可读备注
+#
+# 添加新 case：追加一条即可，run_regression.py 自动加载。
+# ────────────────────────────────────────────────────────────
+
+- name: simple_count
+  query: "今天有多少 ERROR？"
+  conversation_history: ""
+  expected_route: ["parser"]
+  expected_keywords: ["6"]
+  expected_final_report: false
+  notes: "最短路径：parser 回答数量即可"
+
+- name: top_services
+  query: "报错最多的 3 个服务是哪些？"
+  conversation_history: ""
+  expected_route: ["parser"]
+  expected_keywords: ["OrderService"]
+  expected_final_report: false
+  notes: "服务排行，parser 调 get_top_error_services 即可"
+
+- name: time_filter
+  query: "今天 08:00 到 09:00 之间的 ERROR 有哪些？"
+  conversation_history: ""
+  expected_route: ["parser"]
+  expected_keywords: ["OrderService"]
+  expected_final_report: false
+  notes: "时间段过滤，parser 调 filter_logs_by_time。该时段有 OrderService 错误，无 DBPool（原 seed 写错了）"
+
+- name: root_cause
+  query: "DBPool 为什么失败？"
+  conversation_history: ""
+  expected_route: ["parser", "analyzer"]
+  expected_keywords: ["连接池"]
+  expected_final_report: false
+  notes: "根因分析：需要先 parser 收集数据，再 analyzer 分析"
+
+- name: structured_report
+  query: "生成今天的结构化日志报告"
+  conversation_history: ""
+  expected_route: ["parser", "reporter"]
+  expected_keywords: []
+  expected_final_report: true
+  notes: "结构化输出：最终应生成 LogAnalysisResult"
+
+- name: ambiguous
+  query: "帮我分析一下"
+  conversation_history: ""
+  expected_route: ["parser"]
+  expected_keywords: []
+  expected_final_report: false
+  notes: "模糊问题：Parser 应只澄清一次（不循环），Supervisor 应 END。不期望具体关键词，能正常结束即通过"
+
+- name: out_of_scope
+  query: "今天天气怎么样？"
+  conversation_history: ""
+  expected_route: []
+  expected_keywords: []
+  expected_final_report: false
+  notes: "越界问题：应直接 END（或至少不调 Tool）"
+
+- name: follow_up_payment
+  query: "那 Payment 呢？"
+  conversation_history: "  Q1: DBPool 为什么失败？\n  A1: [Analyzer] 数据库连接池耗尽（max=50）导致订单和支付服务失败。"
+  expected_route: ["parser"]
+  expected_keywords: ["Payment"]
+  expected_final_report: false
+  notes: "多轮追问：需要基于历史理解\"那\"指代 Payment 服务"

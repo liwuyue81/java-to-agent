@@ -7,6 +7,12 @@
 # 告警状态文件（运行时自动生成）
 alert/state.json
 
+# 回归测试的最近一次运行结果（每次覆盖，不版本化；baseline.json 入 git）
+tech_showcase/regression/latest.json
+
+# 向量数据库（运行时由 index_logs() 生成，不入 git；CI 每次重建）
+chroma_db/
+
 # Python 缓存
 __pycache__/
 *.pyc
@@ -16,6 +22,10 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+
+# 个人简历（含手机号/邮箱，公开仓库不推）
+李焕佳_AI_Agent工程师_简历.md
+docs/resume/
 
 # macOS
 .DS_Store

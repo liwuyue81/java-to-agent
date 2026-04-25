@@ -15,8 +15,8 @@ from __future__ import annotations
 import logging
 from datetime import date
 from langchain_ollama import ChatOllama
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain import hub
+from langchain_classic.agents import AgentExecutor, create_react_agent
+from langchain_classic import hub
 from config import settings
 from schemas.output import LogAnalysisResult
 from tools.log_tools_stage2 import (

@@ -1,0 +1,94 @@
+name: Regression Tests
+
+# ── 触发条件 ──────────────────────────────────────────────────────────────
+# PR：每次提 PR 跑，让 reviewer 看到 Prompt 改动前后的对比
+# push main：合并后再跑一次确认，报告归档到 Actions artifact
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # 只有这些文件变动才跑（避免改 README 也烧 API 额度）
+      - "tech_showcase/langgraph_supervisor.py"
+      - "tech_showcase/regression/**"
+      - "tools/**"
+      - "rag/**"
+      - "config.py"
+      - "schemas/**"
+  push:
+    branches: [main]
+    paths:
+      - "tech_showcase/langgraph_supervisor.py"
+      - "tech_showcase/regression/**"
+      - "tools/**"
+      - "rag/**"
+      - "config.py"
+      - "schemas/**"
+
+jobs:
+  regression:
+    name: Prompt Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20   # 防止 LLM 超时导致 job 挂死
+
+    steps:
+      # 1. 拉代码（含 logs/app.log 和 baseline.json）
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. 装 Python 3.11（和本地 .venv 版本一致）
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # 3. 装依赖（mcp / langchain / ragas / ...）
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. 构建向量库（chroma_db 不入 git，每次 CI 重建）
+      #    需要 DASHSCOPE_API_KEY：用于 embedding（text-embedding-v3）
+      - name: Build vector index
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          LLM_PROVIDER: dashscope
+          EMBEDDING_PROVIDER: dashscope
+          LANGSMITH_TRACING: "false"   # CI 不需要上报 LangSmith
+        run: |
+          python -c "
+          from rag.log_indexer import index_logs
+          index_logs(force=True)
+          print('Vector index built.')
+          "
+
+      # 5. 跑回归测试
+      #    exit code: 0=全过 / 1=有 fail / 2=运行异常
+      - name: Run regression
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          LLM_PROVIDER: dashscope
+          MODEL_NAME: qwen-plus
+          EMBEDDING_PROVIDER: dashscope
+          LANGSMITH_TRACING: "false"
+        run: |
+          python tech_showcase/regression/run_regression.py
+        # 即使 exit=1（有 fail）也继续后面的步骤（上传报告）
+        continue-on-error: true
+        id: regression_run
+
+      # 6. 上传 Markdown 报告为 Actions artifact（方便 Code Review 时查看）
+      - name: Upload regression report
+        uses: actions/upload-artifact@v4
+        if: always()   # 成功和失败都上传
+        with:
+          name: regression-report-${{ github.run_number }}
+          path: tech_showcase/regression/reports/
+          retention-days: 30
+
+      # 7. 最终根据回归结果决定整体 job 状态
+      #    （step 5 用了 continue-on-error，这里补回真正的失败状态）
+      - name: Check regression result
+        if: steps.regression_run.outcome == 'failure'
+        run: |
+          echo "❌ Regression tests failed. Check the uploaded report for details."
+          exit 1

@@ -1,7 +1,7 @@
 from langchain_ollama import ChatOllama
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain.memory import ConversationBufferMemory
-from langchain import hub
+from langchain_classic.agents import AgentExecutor, create_react_agent
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic import hub
 from tools.log_tools_stage2 import (
     get_error_logs,
     get_log_summary,

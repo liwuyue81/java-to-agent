@@ -1,6 +1,6 @@
 from langchain_ollama import ChatOllama
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain import hub
+from langchain_classic.agents import AgentExecutor, create_react_agent
+from langchain_classic import hub
 from tools.log_tools import get_error_logs, get_log_summary, search_logs
 
 # 1. 初始化本地模型（类比：创建数据库连接）

@@ -1,0 +1,24 @@
+# RAG 评估数据集
+# ───────────────────────────────────────────────────────────
+# 格式：每一条包含
+#   question     - 用户问题（英文，因日志是英文）
+#   ground_truth - 理想答案应该包含的关键信息
+#
+# 添加新用例：追加一条即可，两个评估脚本自动加载
+#   - rag/eval_rag.py        （简化版，无 ragas 依赖）
+#   - rag/eval_rag_ragas.py  （官方 ragas 版）
+
+- question: database connection pool exhausted
+  ground_truth: "Connection pool exhausted, failed to acquire connection. DBPool max=50 reached."
+
+- question: redis cache connection failure
+  ground_truth: "Redis connection failed: host=redis-01, port=6379. CacheService unavailable."
+
+- question: payment service error
+  ground_truth: "Payment failed: orderId=5002, cause=upstream service unavailable."
+
+- question: slow scheduled job
+  ground_truth: "Daily report job slow, elapsed=44s, threshold=30s."
+
+- question: order creation failure
+  ground_truth: "Create order failed: orderId=5002, cause=DB connection timeout."
