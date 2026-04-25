@@ -47,10 +47,10 @@ jobs:
         run: pip install -r requirements.txt
 
       # 4. 构建向量库（chroma_db 不入 git，每次 CI 重建）
-      #    需要 DASHSCOPE_API_KEY：用于 embedding（text-embedding-v3）
+      #    需要 API_KEY：用于 embedding（text-embedding-v3）
       - name: Build vector index
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          API_KEY: ${{ secrets.API_KEY }}
           LLM_PROVIDER: dashscope
           EMBEDDING_PROVIDER: dashscope
           LANGSMITH_TRACING: "false"   # CI 不需要上报 LangSmith
@@ -65,7 +65,7 @@ jobs:
       #    exit code: 0=全过 / 1=有 fail / 2=运行异常
       - name: Run regression
         env:
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          API_KEY: ${{ secrets.API_KEY }}
           LLM_PROVIDER: dashscope
           MODEL_NAME: qwen-plus
           EMBEDDING_PROVIDER: dashscope
