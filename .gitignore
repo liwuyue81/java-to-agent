@@ -29,3 +29,6 @@ docs/resume/
 
 # macOS
 .DS_Store
+
+# CI Artifacts 下载目录（不入 git）
+docs/regression-report-*/

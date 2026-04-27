@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "/Users/photonpay/java-to-agent/.venv/bin/python",
+      "args": ["/Users/photonpay/java-to-agent/mysql_mcp_server/server.py"],
+      "env": {
+        "MYSQL_URL": "mysql+pymysql://root:dev123456@localhost:3307/testdb",
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

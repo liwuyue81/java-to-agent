@@ -1,0 +1,41 @@
+# 虚拟环境（本地用，镜像里不需要）
+.venv/
+
+# 环境变量（含 API key，绝不进镜像）
+.env
+.env.local
+
+# 向量数据库（运行时生成，通过 volume 挂载）
+chroma_db/
+
+# Git
+.git/
+.gitignore
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# CI
+.github/
+
+# 文档（镜像不需要）
+docs/
+*.md
+
+# 简历
+李焕佳_AI_Agent工程师_简历.md
+
+# 回归测试报告（运行时产出，不进镜像）
+tech_showcase/regression/reports/
+tech_showcase/regression/latest.json
