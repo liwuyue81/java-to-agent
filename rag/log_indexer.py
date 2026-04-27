@@ -186,11 +186,55 @@ def index_logs(force: bool = False, strategy: str = "sliding_window") -> int:
     return len(documents)
 
 
-def search_similar_logs(query: str, k: int = 5, level: str = "") -> list[Document]:
+def search_similar_logs(query: str, k: int = 5, level: str = "", use_rerank: bool = True) -> list[Document]:
     """
     语义检索：找到与 query 最相似的 k 条日志。
-    level：可选过滤级别（ERROR / WARN / INFO）
+
+    use_rerank=True（默认）：粗召回 4x 候选，再用向量相似度 + 关键词重叠综合重排取 top-k。
+        好处：纯向量检索有时会漏掉包含精确关键词的日志；Rerank 把语义和字面都考虑进去。
+    use_rerank=False：直接返回向量 top-k（原始行为）。
+
+    Args:
+        query:      查询语句（自然语言）
+        k:          最终返回条数
+        level:      日志级别过滤（ERROR / WARN / INFO），空则不过滤
+        use_rerank: 是否启用重排序
     """
     vectorstore = get_vectorstore()
     filter_dict = {"level": level} if level else None
-    return vectorstore.similarity_search(query, k=k, filter=filter_dict)
+
+    if not use_rerank:
+        return vectorstore.similarity_search(query, k=k, filter=filter_dict)
+
+    # ── Rerank 模式 ────────────────────────────────────────────────────────────
+    # Step 1：粗召回 min(k*4, 20) 条候选（比最终 k 多几倍，给重排留空间）
+    fetch_k = min(k * 4, 20)
+    candidates = vectorstore.similarity_search_with_score(query, k=fetch_k, filter=filter_dict)
+
+    if not candidates:
+        return []
+
+    # Step 2：重排——向量相似度 + 关键词重叠综合打分
+    query_terms = set(query.lower().split())
+
+    # Chroma 默认返回 L2 距离（越小越相似），转成 [0,1] 相似度
+    # 用 min-max 归一化：score = 1 - (dist - min_dist) / (max_dist - min_dist + ε)
+    distances = [score for _, score in candidates]
+    min_d, max_d = min(distances), max(distances)
+    span = max(max_d - min_d, 1e-9)
+
+    reranked = []
+    for doc, dist in candidates:
+        vec_sim = 1.0 - (dist - min_d) / span          # 向量相似度 [0,1]
+
+        # 关键词匹配率：query 中有多少词出现在 chunk 里
+        content_terms = set(doc.page_content.lower().split())
+        kw_score = len(query_terms & content_terms) / max(len(query_terms), 1)
+
+        # 综合得分：向量语义权重 70%，关键词字面权重 30%
+        combined = 0.7 * vec_sim + 0.3 * kw_score
+        reranked.append((doc, combined))
+
+    reranked.sort(key=lambda x: x[1], reverse=True)
+    logger.debug(f"Rerank: 粗召回 {len(candidates)} 条 → 精排返回 {k} 条")
+    return [doc for doc, _ in reranked[:k]]
