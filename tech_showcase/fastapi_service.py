@@ -306,27 +306,26 @@ def _interrupt_reason(pending_node: str) -> str:
 
 async def stream_graph(query: str, session_id: str) -> AsyncGenerator[dict, None]:
     """
-    核心：把 Supervisor Graph 的节点级事件转成 SSE 事件流（支持多轮 session + HITL）。
+    核心：把 Supervisor Graph 的事件转成 SSE 流（支持多轮 session + HITL）。
 
     关键点：
-      1) 流开头先推 event: session，告诉前端本轮 session_id + 已有历史轮数
-      2) compiled.astream() 每个节点完成 yield 一个 chunk（增量）
-      3) astream 结束后检查 get_state：
-           - 若 state.next 为空 → 正常结束，推 done 事件 + 写 session 历史
-           - 若 state.next 非空 → LangGraph 中断了（Reporter 前），推 interrupt 事件
-             等前端调 /chat/resume 再恢复
+      1) 流开头先推 event: session
+      2) compiled.astream_events(v2) 升级为 token 级流式：
+           - event: token  → LLM 每生成一个 token 推一次（parser/analyzer/reporter/db）
+           - event: node   → 每个 Agent 节点完成后推一次（前端侧栏状态更新）
+      3) astream_events 结束后检查 get_state：
+           - 若 state.next 为空 → 正常结束，推 done
+           - 若 state.next 非空 → HITL 中断（Reporter 前），推 interrupt
     """
     # ── 前处理：读历史 + 格式化进 prompt ──
     history_turns = _get_history(session_id)
     conversation_history = _format_history_for_prompt(history_turns)
 
-    # 首个事件：session 元信息
     yield _sse("session", {
         "session_id": session_id,
         "prev_turns": len(history_turns),
     })
 
-    # 每次请求独立的 thread_id：LangGraph checkpointer 用它定位 state
     thread_id = str(uuid.uuid4())
 
     initial_state = {
@@ -337,36 +336,52 @@ async def stream_graph(query: str, session_id: str) -> AsyncGenerator[dict, None
         "loop_count":           0,
         "conversation_history": conversation_history,
     }
-    accumulated = dict(initial_state)
     step = 0
+
+    # 只对这些 Agent 节点做 token 流式推送（Supervisor 的路由决策是内部 JSON，不推）
+    STREAMING_NODES = {"parser", "analyzer", "reporter", "db"}
+    seen_nodes: set[str] = set()
+    current_node: str = ""   # 當前正在執行的外層節點名
 
     try:
         run_config = _build_run_config(
             session_id, query, tag="chat-stream", thread_id=thread_id,
         )
-        async for chunk in compiled_graph.astream(initial_state, run_config):
-            # LangGraph 1.x 在 interrupt_before 触发时 yield 的 chunk 可能是 tuple
-            # （如 ("__interrupt__", ...)），不是节点更新字典。跳过，后面 get_state 处理
-            if not isinstance(chunk, dict):
-                continue
-            for node_name, update in chunk.items():
-                # 某些情况 update 不是 dict（interrupt 附加信号、子图标记等），跳过
-                if not isinstance(update, dict):
-                    continue
-                step += 1
-                _merge_update(accumulated, update)
-                yield _sse("node", {
-                    "step": step,
-                    "node": node_name,
-                    "update": update,
-                })
 
-        # ── 检测是否因 interrupt_before 而中断 ──
+        async for event in compiled_graph.astream_events(
+            initial_state, version="v2", config=run_config
+        ):
+            kind = event["event"]
+            name = event.get("name", "")
+            metadata = event.get("metadata", {})
+            lg_node = metadata.get("langgraph_node", "")
+
+            # ── 追踪当前外层节点 ────────────────────────────────────────────────
+            # Parser/Analyzer 的 LLM 调用，其 lg_node 是内部的 "model"，不是 "parser"
+            # 用 on_chain_start/end 追踪哪个外层节点正在运行
+            if kind == "on_chain_start" and name in STREAMING_NODES:
+                current_node = name
+
+            elif kind == "on_chain_end" and name in STREAMING_NODES:
+                if name not in seen_nodes:
+                    seen_nodes.add(name)
+                    step += 1
+                    yield _sse("node", {"step": step, "node": name})
+                current_node = ""
+
+            # ── Token 级推送：当前外层节点是 STREAMING_NODES 之一时推 token ────
+            elif kind == "on_chat_model_stream" and current_node in STREAMING_NODES:
+                chunk = event["data"].get("chunk")
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    yield _sse("token", {"delta": chunk.content, "node": current_node})
+
+        # ── 检测是否因 interrupt_before 而中断 ──────────────────────────────────
         state_snap = compiled_graph.get_state(
             {"configurable": {"thread_id": thread_id}}
         )
+        final_values = state_snap.values or {}
+
         if state_snap.next:
-            # 中断了：下一个要执行的节点被拦下（typically "reporter"）
             pending_node = state_snap.next[0]
             logger.info(f"⏸  [HITL] 中断在 {pending_node} 前，thread_id={thread_id[:8]}")
             yield _sse("interrupt", {
@@ -375,25 +390,22 @@ async def stream_graph(query: str, session_id: str) -> AsyncGenerator[dict, None
                 "pending_node": pending_node,
                 "reason":       _interrupt_reason(pending_node),
                 "state_preview": {
-                    "agent_outputs":
-                        (state_snap.values or {}).get("agent_outputs", [])[-2:],
-                    "loop_count":
-                        (state_snap.values or {}).get("loop_count"),
-                    "next_agent":
-                        (state_snap.values or {}).get("next_agent"),
+                    "agent_outputs": final_values.get("agent_outputs", [])[-2:],
+                    "loop_count":    final_values.get("loop_count"),
+                    "next_agent":    final_values.get("next_agent"),
                 },
             })
-            # stream_graph 自然结束，等前端调 /chat/resume
             return
 
-        # ── 正常结束：本轮 Q/A 入库 + done 事件 ──
-        answer = _summarize_answer(accumulated)
+        # ── 正常结束 ─────────────────────────────────────────────────────────────
+        answer = _summarize_answer(final_values)
         _append_turn(session_id, query, answer)
         yield _sse("done", {
-            "final_state": accumulated,
+            "final_state": final_values,
             "session_id":  session_id,
             "turn":        len(_get_history(session_id)),
         })
+
     except Exception as e:
         logger.error(f"stream_graph 失败：{e}", exc_info=True)
         yield _sse("error", {

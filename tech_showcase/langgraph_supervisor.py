@@ -50,6 +50,7 @@ Java 类比（带到你熟悉的语境）：
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import sys
 from operator import add
@@ -158,19 +159,18 @@ parser_subgraph = create_agent(
 )
 
 
-def parser_node(state: SupervisorState) -> dict:
-    """Parser Agent 节点：调用 ReAct 子图收集数据。"""
+async def parser_node(state: SupervisorState) -> dict:
+    """Parser Agent 节点：调用 ReAct 子图收集数据（async，支持 astream_events token 流）。"""
     logger.info("─── [Parser] 开始收集数据 ───")
     context = state["user_query"]
-    # 把已有产出也传给 Parser，让它知道已经收集过什么，避免重复
     if state["agent_outputs"]:
         prior = "\n".join(state["agent_outputs"])
         context = f"{state['user_query']}\n\n已有上下文：\n{prior}"
 
     try:
-        result = parser_subgraph.invoke(
+        result = await parser_subgraph.ainvoke(
             {"messages": [("user", context)]},
-            {"recursion_limit": 10},    # 限制子图最多 10 轮，防失控
+            {"recursion_limit": 10},
         )
         output = result["messages"][-1].content
         logger.info(f"[Parser] 产出：{output[:120]}...")
@@ -276,11 +276,11 @@ db_subgraph = create_agent(
 )
 
 
-def db_agent_node(state: SupervisorState) -> dict:
-    """DB Agent 节点：查询 MySQL 数据库。"""
+async def db_agent_node(state: SupervisorState) -> dict:
+    """DB Agent 节点：查询 MySQL 数据库（async，支持 astream_events token 流）。"""
     logger.info("─── [DB Agent] 开始查询数据库 ───")
     try:
-        result = db_subgraph.invoke(
+        result = await db_subgraph.ainvoke(
             {"messages": [("user", state["user_query"])]},
             {"recursion_limit": 10},
         )
@@ -306,8 +306,8 @@ analyzer_subgraph = create_agent(
 )
 
 
-def analyzer_node(state: SupervisorState) -> dict:
-    """Analyzer Agent 节点：调用 ReAct 子图做根因分析。"""
+async def analyzer_node(state: SupervisorState) -> dict:
+    """Analyzer Agent 节点：调用 ReAct 子图做根因分析（async）。"""
     logger.info("─── [Analyzer] 开始根因分析 ───")
     prior = "\n".join(state["agent_outputs"]) or "（暂无前置数据）"
     context = f"""用户问题：{state["user_query"]}
@@ -318,7 +318,7 @@ def analyzer_node(state: SupervisorState) -> dict:
 请基于以上数据进行根因分析。"""
 
     try:
-        result = analyzer_subgraph.invoke(
+        result = await analyzer_subgraph.ainvoke(
             {"messages": [("user", context)]},
             {"recursion_limit": 10},
         )
@@ -338,8 +338,8 @@ def analyzer_node(state: SupervisorState) -> dict:
 # 直接 LLM + with_structured_output 一次调用就够了。
 # ═══════════════════════════════════════════════════════════════════════════
 
-def reporter_node(state: SupervisorState) -> dict:
-    """Reporter Agent 节点：生成结构化 JSON 报告。"""
+async def reporter_node(state: SupervisorState) -> dict:
+    """Reporter Agent 节点：生成结构化 JSON 报告（async）。"""
     logger.info("─── [Reporter] 开始生成结构化报告 ───")
     prior = "\n".join(state["agent_outputs"])
 
@@ -359,7 +359,7 @@ def reporter_node(state: SupervisorState) -> dict:
 
     structured_llm = llm.with_structured_output(LogAnalysisResult)
     try:
-        report: LogAnalysisResult = structured_llm.invoke(prompt)
+        report: LogAnalysisResult = await asyncio.to_thread(structured_llm.invoke, prompt)
         logger.info(f"[Reporter] 报告生成成功：{report.summary}")
         return {
             "final_report": report.model_dump(),

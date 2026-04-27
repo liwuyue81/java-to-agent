@@ -258,12 +258,16 @@ function renderEvent(eventType, payload) {
     updateSessionLabel(payload.session_id, payload.prev_turns ?? 0);
     addEvent('info',
       `🔗 session ${payload.session_id.slice(0, 8)}... · 已有历史 ${payload.prev_turns} 轮`);
+  } else if (eventType === 'token') {
+    // Token 级流式：逐字追加到当前节点的输出气泡
+    const node = payload.node || 'agent';
+    appendToken(node, payload.delta || '');
   } else if (eventType === 'node') {
     const node = payload.node;
     const step = payload.step;
     const update = payload.update || {};
     // 节点分三类着色
-    const cls = ['supervisor', 'parser', 'analyzer', 'reporter'].includes(node) ? node : 'node';
+    const cls = ['supervisor', 'parser', 'analyzer', 'reporter', 'db'].includes(node) ? node : 'node';
 
     let summary = '';
     if (node === 'supervisor') {
@@ -273,9 +277,10 @@ function renderEvent(eventType, payload) {
     } else if (update.final_report) {
       summary = `生成结构化报告：${update.final_report.summary || 'OK'}`;
     } else {
-      summary = JSON.stringify(update);
+      summary = `节点 ${node} 执行完成`;
     }
 
+    finalizeToken(node);  // 清空 token 气泡，改用 node 事件的 summary
     addEvent(cls, `[step ${step}] ${node}`, summary);
   } else if (eventType === 'interrupt') {
     // HITL：暂停，渲染确认卡片
@@ -338,6 +343,37 @@ function addEvent(cls, label, body = '') {
   const events = document.getElementById('events');
   events.appendChild(div);
   events.scrollTop = events.scrollHeight;
+}
+
+// Token 级流式：逐字追加到正在流式输出的气泡
+const _tokenBubbles = {};  // node -> DOM element
+
+function appendToken(node, delta) {
+  if (!_tokenBubbles[node]) {
+    // 首个 token：创建气泡
+    const div = document.createElement('div');
+    const cls = ['parser', 'analyzer', 'reporter', 'db'].includes(node) ? node : 'node';
+    div.className = `evt ${cls} streaming`;
+    div.innerHTML = `<span class="label">⌨ ${node}</span>`;
+    const pre = document.createElement('pre');
+    pre.className = 'token-stream';
+    div.appendChild(pre);
+    const events = document.getElementById('events');
+    events.appendChild(div);
+    _tokenBubbles[node] = pre;
+  }
+  _tokenBubbles[node].textContent += delta;
+  const events = document.getElementById('events');
+  events.scrollTop = events.scrollHeight;
+}
+
+function finalizeToken(node) {
+  // node 事件到来时移除流式气泡（由 addEvent 替代）
+  if (_tokenBubbles[node]) {
+    const bubble = _tokenBubbles[node].parentElement;
+    if (bubble) bubble.remove();
+    delete _tokenBubbles[node];
+  }
 }
 
 function escapeHtml(s) {
